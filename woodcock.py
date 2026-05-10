@@ -59,8 +59,11 @@ def woodcock_tracking(particle, grid):
         
         if np.random.rand() < probability_of_real:
             grid.real_collisions[voxel] += 1
+            # virtualis utkozes nem csak abszorpcio hanem szoras is lehet
             particle.state = 'absorbed'
         else:
+            # lehet erdemes a valos es virtualis utkozesek szamat reszecskenkent 
+            # szamolni, nem pedig voxelenkent
             grid.virtual_collisions[voxel] += 1
 
     return distance_traveled
