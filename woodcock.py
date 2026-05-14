@@ -29,6 +29,7 @@ class Grid:
         self.total_size = self.num_voxels * self.voxel_size
         # Randomly assign total cross-sections (sigma_t) to each voxel
         self.sigma_t = np.random.uniform(0.1, 1.0, size=self.num_voxels)
+        # PE: cross sections for absorption should be also specified
         self.sigma_maj = np.max(self.sigma_t)
         
         self.real_collisions = np.zeros(self.num_voxels, dtype=int)
@@ -59,12 +60,16 @@ def woodcock_tracking(particle, grid):
         
         if np.random.rand() < probability_of_real:
             grid.real_collisions[voxel] += 1
+            # PE: collisions can be scatterings as well
             particle.state = 'absorbed'
         else:
+            # PE: might be better to count virtual collisions per particle, not per voxel
             grid.virtual_collisions[voxel] += 1
 
     return distance_traveled
 
+# PE: the voxel/grid size should be appropriate for the cross sections, 
+#     i.e. not much  bigger than the mean free path? I did not double check this though 
 grid = Grid(num_voxels=[10, 10, 10], voxel_size=[1.0, 1.0, 1.0])
 
 N_particles = 1000
