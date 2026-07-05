@@ -1,0 +1,21 @@
+=== SZIMULÁCIÓ INDÍTÁSA (40000 részecske/módszer) ===
+Elméleti átlagos szabadúthossz: 2.500
+
+--- Felületkövetés (Surface) ---
+Mért átlagos szabadúthossz: 2.499 (Hiba: 0.0%)
+Státusz: 45 kiszökött | 39955 elnyelődött
+Virtuális ütközések száma: 0
+--------------------------------------------------
+Simulation time: 80.41 seconds
+--- Woodcock-követés (Delta) ---
+Mért átlagos szabadúthossz: 2.500 (Hiba: 0.0%)
+Státusz: 48 kiszökött | 39952 elnyelődött
+Virtuális ütközések száma: 0
+--------------------------------------------------
+Simulation time: 9.38 seconds
+--- Kombinált (Hibrid) követés ---
+Mért átlagos szabadúthossz: 2.502 (Hiba: 0.1%)
+Státusz: 57 kiszökött | 39943 elnyelődött
+Virtuális ütközések száma: 0
+--------------------------------------------------
+Simulation time: 88.08 seconds
