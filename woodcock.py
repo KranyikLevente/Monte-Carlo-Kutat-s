@@ -34,8 +34,10 @@ class Grid:
         self.total_size = self.num_voxels * self.voxel_size
         self.voxel_volume = np.prod(self.voxel_size)
         # A rács minden voxeljéhez hozzárendeljük a szórási és abszorpciós keresztmetszeteket
-        self.sigma_t = np.full(self.num_voxels, 0.4) 
-        self.sigma_a = np.full(self.num_voxels, 0.1)
+        random_max_t = np.random.uniform(0.1,0.6)
+        random_max_a = np.random.uniform(0.05,0.2)
+        self.sigma_t = np.random.uniform(0.1, random_max_t, size=self.num_voxels)
+        self.sigma_a = np.random.uniform(0.05, random_max_a, size=self.num_voxels)
         
         self.sigma_maj = np.max(self.sigma_t)
 
@@ -45,16 +47,14 @@ class Grid:
 
     def which_voxel(self, position):
         voxel_idx = np.floor(position / self.voxel_size).astype(int)
-        voxel_idx = np.clip(voxel_idx, 0, self.num_voxels - 1)
+        if np.any(voxel_idx < 0) or np.any(voxel_idx >= self.num_voxels):
+            raise ValueError(f"Position {position} is out of bounds for the grid with total size {self.total_size}.")
         return tuple(voxel_idx)
 
 def woodcock_tracking(particle, grid, global_real_paths):
-    distance_traveled = 0.0
-    
     while particle.state == 'active':
         mean_free_path = 1.0 / grid.sigma_maj
         random_distance = np.random.exponential(scale=mean_free_path)
-        distance_traveled += random_distance
         particle.path_since_last_real_collision += random_distance
         
         current_voxel = grid.which_voxel(particle.position)
@@ -63,19 +63,20 @@ def woodcock_tracking(particle, grid, global_real_paths):
         if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
             particle.state = 'escaped'
             break
-        grid.flux_tally[current_voxel] += random_distance
-        target_voxel = grid.which_voxel(particle.position)
-        sigma_t_local = grid.sigma_t[target_voxel]
+
+        collision_voxel = grid.which_voxel(particle.position)
+        grid.flux_tally[collision_voxel] += 1.0 / grid.sigma_maj
+        sigma_t_local = grid.sigma_t[collision_voxel]
         probability_of_real = sigma_t_local / grid.sigma_maj
         
         if np.random.rand() < probability_of_real:
-            grid.real_collisions[target_voxel] += 1
+            grid.real_collisions[collision_voxel] += 1
             
             # Valós ütközés történt, elmentjük a két ütközés közti utat, majd nullázzuk
             global_real_paths.append(particle.path_since_last_real_collision)
             particle.path_since_last_real_collision = 0.0
             
-            sigma_a_local = grid.sigma_a[target_voxel]
+            sigma_a_local = grid.sigma_a[collision_voxel]
             prob_absorption = sigma_a_local / sigma_t_local
             
             if np.random.rand() < prob_absorption:
@@ -84,8 +85,6 @@ def woodcock_tracking(particle, grid, global_real_paths):
                 particle.direction = isotropic_dir()
         else:
             particle.virtual_collisions += 1
-
-    return distance_traveled
 
 def get_distance_to_boundary(position, direction, voxel_size):
     d_min = np.inf
@@ -105,13 +104,13 @@ def get_distance_to_boundary(position, direction, voxel_size):
     return d_min
 
 def surface_tracking(particle, grid, global_real_paths):
-    dist_to_collide = np.random.exponential(scale=1.0 / grid.sigma_t[0, 0, 0])
-    while dist_to_collide > 0 and particle.state == 'active':
+    optical_path = -np.log(np.random.rand())
+    while optical_path > 0 and particle.state == 'active':
         current_voxel = grid.which_voxel(particle.position)
         d_bound = get_distance_to_boundary(particle.position, particle.direction, grid.voxel_size)
         
-        if dist_to_collide < d_bound:
-            step_dist = dist_to_collide
+        if optical_path / grid.sigma_t[current_voxel] < d_bound:
+            step_dist = optical_path / grid.sigma_t[current_voxel]
             particle.position += particle.direction * step_dist
             particle.path_since_last_real_collision += step_dist
             grid.flux_tally[current_voxel] += step_dist
@@ -122,62 +121,60 @@ def surface_tracking(particle, grid, global_real_paths):
                 particle.state = 'absorbed'
             else:
                 particle.direction = isotropic_dir()
-                dist_to_collide = np.random.exponential(scale=1.0 / grid.sigma_t[current_voxel])
+                optical_path = -np.log(np.random.rand())
         else:
             step_dist = d_bound + 1e-6
             particle.position += particle.direction * step_dist
             particle.path_since_last_real_collision += step_dist
             grid.flux_tally[current_voxel] += step_dist
             
-            dist_to_collide -= step_dist 
+            optical_path -= step_dist * grid.sigma_t[current_voxel]
             if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
                 particle.state = 'escaped'
                 break
 
 def combined_tracking(particle, grid, global_real_paths):
-    distance_traveled = 0.0
-    
     while particle.state == 'active':
-        current_voxel = grid.which_voxel(particle.position)
-        
-        d_bound = get_distance_to_boundary(particle.position, particle.direction, grid.voxel_size)
-        d_woodcock = np.random.exponential(scale=1.0 / grid.sigma_maj)
-        # woodcock lépés és a határig tartó lépés összehasonlítása
-        if d_woodcock < d_bound:
-            step_dist = d_woodcock
-            particle.path_since_last_real_collision += step_dist
-            particle.position += particle.direction * step_dist
-            distance_traveled += step_dist
-            
-            grid.flux_tally[current_voxel] += step_dist
-            
-            sigma_t_local = grid.sigma_t[current_voxel]
-            probability_of_real = sigma_t_local / grid.sigma_maj
-            
-            if np.random.rand() < probability_of_real:
-                global_real_paths.append(particle.path_since_last_real_collision)
-                particle.path_since_last_real_collision = 0.0
+        dist_to_collide = np.random.exponential(scale=1.0 / grid.sigma_maj)
+        while dist_to_collide > 0 and particle.state == 'active':
+
+            current_voxel = grid.which_voxel(particle.position)
+            d_bound = get_distance_to_boundary(particle.position, particle.direction, grid.voxel_size)
+
+            if dist_to_collide < d_bound:
+                step_dist = dist_to_collide
+                particle.path_since_last_real_collision += step_dist
+                particle.position += particle.direction * step_dist
+                grid.flux_tally[current_voxel] += step_dist
+
+                dist_to_collide = 0.0  # A részecske elérte az ütközést
+
+                sigma_t_local = grid.sigma_t[current_voxel]
+                probability_of_real = sigma_t_local / grid.sigma_maj
                 
-                prob_absorption = grid.sigma_a[current_voxel] / sigma_t_local
-                if np.random.rand() < prob_absorption:
-                    particle.state = 'absorbed'
+                if np.random.rand() < probability_of_real:
+                    global_real_paths.append(particle.path_since_last_real_collision)
+                    particle.path_since_last_real_collision = 0.0
+                    
+                    prob_absorption = grid.sigma_a[current_voxel] / sigma_t_local
+                    if np.random.rand() < prob_absorption:
+                        particle.state = 'absorbed'
+                    else:
+                        particle.direction = isotropic_dir()
                 else:
-                    particle.direction = isotropic_dir()
+                    particle.virtual_collisions += 1
+                    
             else:
-                particle.virtual_collisions += 1
-                
-        else:
-            # A részecske elmegy a határig, plusz egy nagyon pici ráhagyás, hogy átlépjen az új voxelbe
-            step_dist = d_bound + 1e-6 
-            particle.path_since_last_real_collision += step_dist
-            particle.position += particle.direction * step_dist
-            distance_traveled += step_dist
-            
-            if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
-                particle.state = 'escaped'
-                break
-                
-            grid.flux_tally[current_voxel] += step_dist
+                # A részecske elmegy a határig, plusz egy nagyon pici ráhagyás, hogy átlépjen az új voxelbe
+                step_dist = d_bound + 1e-6 
+                particle.path_since_last_real_collision += step_dist
+                particle.position += particle.direction * step_dist
+                if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
+                    particle.state = 'escaped'
+                    break
+                    
+                grid.flux_tally[current_voxel] += step_dist
+                dist_to_collide -= step_dist
 
 def compare_methods(N_particles=2000):
     methods = [
@@ -185,17 +182,12 @@ def compare_methods(N_particles=2000):
         ("Woodcock-követés (Delta)", woodcock_tracking),
         ("Kombinált (Hibrid) követés", combined_tracking)
     ]
-    test_grid = Grid(num_voxels=[10, 10, 10], voxel_size=[1.0, 1.0, 1.0])
-    sigma_t_homogen = test_grid.sigma_t[0, 0, 0] if test_grid.sigma_t.ndim > 1 else test_grid.sigma_t[0]
-    expected_mfp = 1.0 / sigma_t_homogen
     print(f"=== SZIMULÁCIÓ INDÍTÁSA ({N_particles} részecske/módszer) ===")
-    print(f"Elméleti átlagos szabadúthossz: {expected_mfp:.3f}\n")
     
     fluxes = {}
-    
+    shared_grid = Grid(num_voxels=[50, 50, 50], voxel_size=[1.0, 1.0, 1.0])
     for name, track_func in methods:
         t0 = time.time()
-        grid = Grid(num_voxels=[50, 50, 50], voxel_size=[1.0, 1.0, 1.0])
         global_real_paths = []
         escaped_count = 0
         absorbed_count = 0
@@ -203,7 +195,7 @@ def compare_methods(N_particles=2000):
         
         for i in range(N_particles):
             p = Particle(position=[25.5, 25.5, 25.5], direction=isotropic_dir())
-            track_func(p, grid, global_real_paths)
+            track_func(p, shared_grid, global_real_paths)
             
             if p.state == 'escaped':
                 escaped_count += 1
@@ -212,16 +204,16 @@ def compare_methods(N_particles=2000):
             virtual_count += p.virtual_collisions
             
         mean_path = np.mean(global_real_paths)
-        scalar_flux = grid.flux_tally / (N_particles * grid.voxel_volume)
+        scalar_flux = shared_grid.flux_tally / (N_particles * shared_grid.voxel_volume)
         fluxes[name] = scalar_flux
         
         print(f"--- {name} ---")
-        print(f"Mért átlagos szabadúthossz: {mean_path:.3f} (Hiba: {abs(mean_path-expected_mfp)/expected_mfp*100:.1f}%)")
+        print(f"Mért átlagos szabadúthossz: {mean_path:.3f}")
         print(f"Státusz: {escaped_count} kiszökött | {absorbed_count} elnyelődött")
         print(f"Virtuális ütközések száma: {virtual_count}")
-        print("-" * 50)
         t1 = time.time()
         print(f"Simulation time: {t1 - t0:.2f} seconds")
+        print("-" * 50)
         
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     fig.suptitle('Fluxustérképek összehasonlítása (logaritmikus skála)', fontsize=16)
@@ -237,4 +229,4 @@ def compare_methods(N_particles=2000):
     plt.tight_layout()
     plt.show()
 
-compare_methods(N_particles=40000)
+compare_methods(N_particles=500000)
