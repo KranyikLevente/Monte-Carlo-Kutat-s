@@ -164,52 +164,17 @@ def combined_tracking(particle, grid, global_real_paths):
         current_macro = grid.which_macro_voxel(particle.position)
         sigma_maj_local = grid.sigma_maj[current_macro]
         
-        # Woodcock szabadúthossz sorsolása a jegyzetek alapján (d = -1/Sigma_M * log(r))
         d_woodcock = -np.log(np.random.rand()) / sigma_maj_local
         d_macro_bound = grid.get_distance_to_boundary(particle.position, particle.direction, macro_size)
         
-        # Eldöntjük, hogy az ütközés a makro-voxelen belül van-e
         if d_woodcock < d_macro_bound:
-            target_distance = d_woodcock
-            is_collision_check = True
-        else:
-            target_distance = d_macro_bound
-            is_collision_check = False
+            particle.position += particle.direction * d_woodcock
+            particle.path_since_last_real_collision += d_woodcock
             
-        # Surface tracking a mikro-voxeleken a cél távolság eléréséig
-        dist_traveled = 0.0
-        while dist_traveled < target_distance and particle.state == 'active':
             current_micro = grid.which_micro_voxel(particle.position)
-            d_micro_bound = grid.get_distance_to_boundary(particle.position, particle.direction, grid.voxel_size)
             
-            step_dist = min(target_distance - dist_traveled, d_micro_bound)
+            grid.flux_tally[current_micro] += 1.0 / sigma_maj_local
             
-            particle.position += particle.direction * step_dist
-            particle.path_since_last_real_collision += step_dist
-            grid.flux_tally[current_micro] += step_dist
-            dist_traveled += step_dist
-            
-            # Mikro-határ átlépése ("kicsi túlmenés"), ha még nem értük el a célt
-            if dist_traveled < target_distance:
-                particle.position += particle.direction * 1e-6
-                particle.path_since_last_real_collision += 1e-6
-                if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
-                    particle.state = 'escaped'
-                    break
-
-        if particle.state != 'active':
-            break
-
-        # Makro-határ kezelése vagy Woodcock ütközés elbírálása
-        if not is_collision_check:
-            # "Surface tracking 2 végén": kilépünk a makro-voxelből egy kis ráhagyással
-            particle.position += particle.direction * 1e-6
-            particle.path_since_last_real_collision += 1e-6
-            if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
-                particle.state = 'escaped'
-        else:
-            # "Virtuális ütközést nézünk, egy kis voxel nagy hatáskeresztmetszet(woodcockhoz)"
-            current_micro = grid.which_micro_voxel(particle.position)
             sigma_t_local = grid.sigma_t[current_micro]
             probability_of_real = sigma_t_local / sigma_maj_local
             
@@ -225,6 +190,14 @@ def combined_tracking(particle, grid, global_real_paths):
                     particle.direction = isotropic_dir()
             else:
                 particle.virtual_collisions += 1
+        else:
+            step_dist = d_macro_bound + 1e-6
+            particle.position += particle.direction * step_dist
+            particle.path_since_last_real_collision += step_dist
+            
+            if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
+                particle.state = 'escaped'
+                break
 
 def compare_methods(N_particles=2000):
     methods = [
@@ -237,6 +210,22 @@ def compare_methods(N_particles=2000):
     fluxes = {}
     shared_grid = Grid(num_voxels=[50, 50, 50], voxel_size=[1.0, 1.0, 1.0], macro_block_size=5)
     
+    num_spikes = 5
+    high_sigma_t = 5.0
+    bs = shared_grid.macro_block_size
+    
+    for _ in range(num_spikes):
+        m_x, m_y, m_z = np.random.randint(0, shared_grid.macro_num_blocks, size=3)
+        u_x, u_y, u_z = np.random.randint(0, bs, size=3)
+        
+        glob_x, glob_y, glob_z = m_x * bs + u_x, m_y * bs + u_y, m_z * bs + u_z
+        
+        shared_grid.sigma_t[glob_x, glob_y, glob_z] = high_sigma_t
+        shared_grid.sigma_a[glob_x, glob_y, glob_z] = high_sigma_t * 0.9 
+        shared_grid.sigma_maj[m_x, m_y, m_z] = high_sigma_t
+
+    shared_grid.sigma_maj_max = np.max(shared_grid.sigma_maj)
+
     for name, track_func in methods:
         shared_grid.flux_tally.fill(0.0)
         shared_grid.real_collisions.fill(0)
@@ -266,7 +255,7 @@ def compare_methods(N_particles=2000):
         print(f"Státusz: {escaped_count} kiszökött | {absorbed_count} elnyelődött")
         print(f"Virtuális ütközések száma: {virtual_count}")
         t1 = time.time()
-        print(f"Simulation time: {t1 - t0:.2f} seconds")
+        print(f"Futási idő: {t1 - t0:.2f} másodperc")
         print("-" * 50)
         
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
@@ -283,4 +272,5 @@ def compare_methods(N_particles=2000):
     plt.tight_layout()
     plt.show()
 
-compare_methods(N_particles=500000)
+if __name__ == "__main__":
+    compare_methods(N_particles=500000)
