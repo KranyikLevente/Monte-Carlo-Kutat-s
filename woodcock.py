@@ -157,7 +157,7 @@ def surface_tracking(particle, grid, global_real_paths):
                 particle.state = 'escaped'
                 break
 
-def combined_tracking(particle, grid, global_real_paths):
+def combined_woodcock_tracking(particle, grid, global_real_paths):
     macro_size = grid.voxel_size * grid.macro_block_size
     
     while particle.state == 'active':
@@ -198,12 +198,65 @@ def combined_tracking(particle, grid, global_real_paths):
             if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
                 particle.state = 'escaped'
                 break
+#macro voxeleken fluxus nem a kicsiken
+# Optikai úthossz sorsolás -> surface tracking csak nagy voxeleken
+# Macro voxelekben vizsgáljuk, surface tracking kb végig (lokális majoráns alapján)
+# Ha ütközés van akkor megvizsgáljuk mint a woodcock módszerben hogy valós vagy virtuális
+# probability_of_real = sigma_t_local / grid.sigma_maj_max utolsó lépésnél
+# optikai akkor is ha virtuális
+def combined_surface_tracking(particle, grid, global_real_paths):
+    optical_path = -np.log(np.random.rand())
+    macro_size = grid.voxel_size * grid.macro_block_size
+    
+    while optical_path > 0 and particle.state == 'active':
+        current_macro = grid.which_macro_voxel(particle.position)
+        d_bound = grid.get_distance_to_boundary(particle.position, particle.direction, macro_size)
+        
+        if optical_path / grid.sigma_maj[current_macro] < d_bound:
+            step_dist = optical_path / grid.sigma_maj[current_macro]
+            particle.position += particle.direction * step_dist
+            
+            current_micro = grid.which_micro_voxel(particle.position)
+            probability_of_real = grid.sigma_t[current_micro] / grid.sigma_maj[current_macro]
+            
+            if np.random.rand() < probability_of_real:
+                particle.path_since_last_real_collision += step_dist
+                grid.flux_tally[current_micro] += 1.0 / grid.sigma_maj[current_macro]
+                grid.real_collisions[current_micro] += 1
+                global_real_paths.append(particle.path_since_last_real_collision)
+                particle.path_since_last_real_collision = 0.0
+                
+                if np.random.rand() < grid.sigma_a[current_micro] / grid.sigma_t[current_micro]:
+                    particle.state = 'absorbed'
+                else:
+                    particle.direction = isotropic_dir()
+                    optical_path = -np.log(np.random.rand())
+            else:
+                particle.virtual_collisions += 1
+                particle.path_since_last_real_collision += step_dist
+                grid.flux_tally[current_micro] += step_dist
+                optical_path = -np.log(np.random.rand())
+        else:
+            step_dist = d_bound + 1e-6
+            
+            current_micro = grid.which_micro_voxel(particle.position)
+            grid.flux_tally[current_micro] += step_dist
+            
+            particle.position += particle.direction * step_dist
+            particle.path_since_last_real_collision += step_dist
+            
+            optical_path -= step_dist * grid.sigma_maj[current_macro]
+
+            if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
+                particle.state = 'escaped'
+                break
 
 def compare_methods(N_particles=2000):
     methods = [
         ("Felületkövetés (Surface)", surface_tracking),
         ("Woodcock-követés (Delta)", woodcock_tracking),
-        ("Kombinált (Hibrid) követés", combined_tracking)
+        ("Kombinált (Hibrid Woodcock) követés", combined_woodcock_tracking),
+        ("Kombinált felületkövetés (Hibrid Surface) követés", combined_surface_tracking),
     ]
     print(f"=== SZIMULÁCIÓ INDÍTÁSA ({N_particles} részecske/módszer) ===")
     
@@ -258,13 +311,19 @@ def compare_methods(N_particles=2000):
         print(f"Futási idő: {t1 - t0:.2f} másodperc")
         print("-" * 50)
         
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    fig, axes = plt.subplots(1, 4, figsize=(18, 5))
     fig.suptitle('Fluxustérképek összehasonlítása (logaritmikus skála)', fontsize=16)
     
     for ax, (name, flux) in zip(axes, fluxes.items()):
         slice_2d = flux[:, :, flux.shape[2] // 2]
-        im = ax.imshow(slice_2d, origin='lower', cmap='viridis', norm=LogNorm(vmin=1e-3, vmax=np.max(slice_2d)))
-        ax.set_title(name)
+        
+        max_flux = np.max(slice_2d)
+        if max_flux <= 1e-3:
+            max_flux = 1e-2
+            
+        im = ax.imshow(slice_2d, origin='lower', cmap='viridis', norm=LogNorm(vmin=1e-3, vmax=max_flux))
+        
+        ax.set_title(name, fontsize=10)
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label='Fluxus')

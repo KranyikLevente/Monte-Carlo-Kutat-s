@@ -1,0 +1,25 @@
+=== SZIMULÁCIÓ INDÍTÁSA (500000 részecske/módszer) ===
+--- Felületkövetés (Surface) ---
+Mért átlagos szabadúthossz: 4.014
+Státusz: 13508 kiszökött | 486487 elnyelődött
+Virtuális ütközések száma: 0
+Futási idő: 1806.59 másodperc
+--------------------------------------------------
+--- Woodcock-követés (Delta) ---
+Mért átlagos szabadúthossz: 4.017
+Státusz: 13575 kiszökött | 486425 elnyelődött
+Virtuális ütközések száma: 39748736
+Futási idő: 2146.13 másodperc
+--------------------------------------------------
+--- Kombinált (Hibrid Woodcock) követés ---
+Mért átlagos szabadúthossz: 4.014
+Státusz: 13590 kiszökött | 486410 elnyelődött
+Virtuális ütközések száma: 1184337
+Futási idő: 982.77 másodperc
+--------------------------------------------------
+--- Kombinált felületkövetés (Hibrid Surface) követés ---
+Mért átlagos szabadúthossz: 4.017
+Státusz: 13674 kiszökött | 486324 elnyelődött
+Virtuális ütközések száma: 1185315
+Futási idő: 1047.95 másodperc
+--------------------------------------------------
