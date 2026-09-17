@@ -45,6 +45,7 @@ class Grid:
 
         self.macro_block_size = int(macro_block_size)
         self.macro_num_blocks = self.num_voxels // self.macro_block_size
+        self.macro_flux_tally = np.zeros(self.macro_num_blocks, dtype=float)
 
         self.sigma_maj = np.zeros(self.macro_num_blocks, dtype=float) 
         for i in range(self.macro_num_blocks[0]):
@@ -104,7 +105,7 @@ def woodcock_tracking(particle, grid, global_real_paths):
             break
 
         collision_voxel = grid.which_micro_voxel(particle.position)
-        grid.flux_tally[collision_voxel] += 1.0 / grid.sigma_maj_max
+        grid.flux_tally[collision_voxel] += random_distance
         
         sigma_t_local = grid.sigma_t[collision_voxel]
         probability_of_real = sigma_t_local / grid.sigma_maj_max
@@ -173,7 +174,7 @@ def combined_woodcock_tracking(particle, grid, global_real_paths):
             
             current_micro = grid.which_micro_voxel(particle.position)
             
-            grid.flux_tally[current_micro] += 1.0 / sigma_maj_local
+            grid.flux_tally[current_micro] += d_woodcock
             
             sigma_t_local = grid.sigma_t[current_micro]
             probability_of_real = sigma_t_local / sigma_maj_local
@@ -192,18 +193,15 @@ def combined_woodcock_tracking(particle, grid, global_real_paths):
                 particle.virtual_collisions += 1
         else:
             step_dist = d_macro_bound + 1e-6
+            current_micro = grid.which_micro_voxel(particle.position)
+            grid.flux_tally[current_micro] += step_dist
             particle.position += particle.direction * step_dist
             particle.path_since_last_real_collision += step_dist
             
             if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
                 particle.state = 'escaped'
                 break
-#macro voxeleken fluxus nem a kicsiken
-# Optikai úthossz sorsolás -> surface tracking csak nagy voxeleken
-# Macro voxelekben vizsgáljuk, surface tracking kb végig (lokális majoráns alapján)
-# Ha ütközés van akkor megvizsgáljuk mint a woodcock módszerben hogy valós vagy virtuális
-# probability_of_real = sigma_t_local / grid.sigma_maj_max utolsó lépésnél
-# optikai akkor is ha virtuális
+
 def combined_surface_tracking(particle, grid, global_real_paths):
     optical_path = -np.log(np.random.rand())
     macro_size = grid.voxel_size * grid.macro_block_size
@@ -221,7 +219,8 @@ def combined_surface_tracking(particle, grid, global_real_paths):
             
             if np.random.rand() < probability_of_real:
                 particle.path_since_last_real_collision += step_dist
-                grid.flux_tally[current_micro] += 1.0 / grid.sigma_maj[current_macro]
+                grid.macro_flux_tally[current_macro] += step_dist
+                grid.flux_tally[current_micro] += step_dist
                 grid.real_collisions[current_micro] += 1
                 global_real_paths.append(particle.path_since_last_real_collision)
                 particle.path_since_last_real_collision = 0.0
@@ -266,6 +265,8 @@ def compare_methods(N_particles=2000):
     num_spikes = 5
     high_sigma_t = 5.0
     bs = shared_grid.macro_block_size
+    #ki lehetne plotolni az eredeti sigma_t eloszlást, hogy lássuk a kiugró értékeket
+    #micro rácsra is(talán macrora is (majoráns hatáskeresztmetszet miatt))
     
     for _ in range(num_spikes):
         m_x, m_y, m_z = np.random.randint(0, shared_grid.macro_num_blocks, size=3)
@@ -282,6 +283,7 @@ def compare_methods(N_particles=2000):
     for name, track_func in methods:
         shared_grid.flux_tally.fill(0.0)
         shared_grid.real_collisions.fill(0)
+        shared_grid.macro_flux_tally.fill(0)
         
         t0 = time.time()
         global_real_paths = []
@@ -302,6 +304,9 @@ def compare_methods(N_particles=2000):
         mean_path = np.mean(global_real_paths) if global_real_paths else 0.0
         scalar_flux = shared_grid.flux_tally / (N_particles * shared_grid.voxel_volume)
         fluxes[name] = scalar_flux
+        if "Hibrid Surface" in name:
+            macro_vol = np.prod(shared_grid.voxel_size * shared_grid.macro_block_size)
+            fluxes["Makro Hibrid Surface"] = shared_grid.macro_flux_tally / (N_particles * macro_vol)
         
         print(f"--- {name} ---")
         print(f"Mért átlagos szabadúthossz: {mean_path:.3f}")
@@ -311,7 +316,7 @@ def compare_methods(N_particles=2000):
         print(f"Futási idő: {t1 - t0:.2f} másodperc")
         print("-" * 50)
         
-    fig, axes = plt.subplots(1, 4, figsize=(18, 5))
+    fig, axes = plt.subplots(1, 5, figsize=(22, 5))
     fig.suptitle('Fluxustérképek összehasonlítása (logaritmikus skála)', fontsize=16)
     
     for ax, (name, flux) in zip(axes, fluxes.items()):
@@ -320,7 +325,8 @@ def compare_methods(N_particles=2000):
         max_flux = np.max(slice_2d)
         if max_flux <= 1e-3:
             max_flux = 1e-2
-            
+        # fluxus normalizálás részcske számmal oszlás és voxel térfogattal
+        #slice_2d /= (N_particles * shared_grid.voxel_volume)    
         im = ax.imshow(slice_2d, origin='lower', cmap='viridis', norm=LogNorm(vmin=1e-3, vmax=max_flux))
         
         ax.set_title(name, fontsize=10)
@@ -332,4 +338,4 @@ def compare_methods(N_particles=2000):
     plt.show()
 
 if __name__ == "__main__":
-    compare_methods(N_particles=500000)
+    compare_methods(N_particles=5000)
