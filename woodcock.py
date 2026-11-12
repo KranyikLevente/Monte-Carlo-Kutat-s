@@ -2,6 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import time
+import os
+import csv
+
 
 def isotropic_dir():
     """ Generates a normalized isotropic direction vector. """
@@ -37,9 +40,9 @@ class Grid:
         self.real_collisions = np.zeros(self.num_voxels, dtype=int)
         self.flux_tally = np.zeros(self.num_voxels, dtype=float)
 
-        random_max_t = np.random.uniform(0.1,0.6)
-        random_max_a = np.random.uniform(0.05,0.2)
-
+        random_max_t = np.random.uniform(0.1,0.4)
+        random_max_a = np.random.uniform(0.05,0.15)
+        
         self.sigma_t = np.random.uniform(0.1, random_max_t, size=self.num_voxels) 
         self.sigma_a = np.random.uniform(0.05, random_max_a, size=self.num_voxels)
 
@@ -249,8 +252,9 @@ def combined_surface_tracking(particle, grid, global_real_paths):
             if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
                 particle.state = 'escaped'
                 break
-
+"""
 def compare_methods(N_particles=2000):
+    #numpy array mentése
     methods = [
         ("Felületkövetés (Surface)", surface_tracking),
         ("Woodcock-követés (Delta)", woodcock_tracking),
@@ -318,7 +322,7 @@ def compare_methods(N_particles=2000):
         
     fig, axes = plt.subplots(1, 5, figsize=(22, 5))
     fig.suptitle('Fluxustérképek összehasonlítása (logaritmikus skála)', fontsize=16)
-    
+    #numpy array mentése
     for ax, (name, flux) in zip(axes, fluxes.items()):
         slice_2d = flux[:, :, flux.shape[2] // 2]
         
@@ -336,6 +340,160 @@ def compare_methods(N_particles=2000):
         
     plt.tight_layout()
     plt.show()
+"""
+
+
+def create_shared_grid():
+    shared_grid = Grid(num_voxels=[50, 50, 50], voxel_size=[1.0, 1.0, 1.0], macro_block_size=1)
+    
+    num_spikes = 0
+    high_sigma_t = 5.0
+    bs = shared_grid.macro_block_size
+    
+    for _ in range(num_spikes):
+        m_x, m_y, m_z = np.random.randint(0, shared_grid.macro_num_blocks, size=3)
+        u_x, u_y, u_z = np.random.randint(0, bs, size=3)
+        
+        glob_x, glob_y, glob_z = m_x * bs + u_x, m_y * bs + u_y, m_z * bs + u_z
+        
+        shared_grid.sigma_t[glob_x, glob_y, glob_z] = high_sigma_t
+        shared_grid.sigma_a[glob_x, glob_y, glob_z] = high_sigma_t * 0.9 
+        shared_grid.sigma_maj[m_x, m_y, m_z] = high_sigma_t
+
+    shared_grid.sigma_maj_max = np.max(shared_grid.sigma_maj)
+    return shared_grid
+
+def save_and_plot_initial_grid(grid, output_dir):
+    np.savez_compressed(
+        os.path.join(output_dir, "original_grid.npz"),
+        sigma_t=grid.sigma_t,
+        sigma_a=grid.sigma_a,
+        sigma_maj=grid.sigma_maj,
+        num_voxels=grid.num_voxels,
+        voxel_size=grid.voxel_size,
+        macro_block_size=np.array(grid.macro_block_size)
+    )
+    
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle('Initial Cross-Section Distribution (Middle Z-slice)', fontsize=14)
+    
+    mid_z_micro = grid.sigma_t.shape[2] // 2
+    im0 = axes[0].imshow(grid.sigma_t[:, :, mid_z_micro], origin='lower', cmap='inferno')
+    axes[0].set_title('Micro Grid ($\Sigma_t$)')
+    fig.colorbar(im0, ax=axes[0], label='$\Sigma_t$')
+    
+    mid_z_macro = grid.sigma_maj.shape[2] // 2
+    im1 = axes[1].imshow(grid.sigma_maj[:, :, mid_z_macro], origin='lower', cmap='inferno')
+    axes[1].set_title('Macro Grid ($\Sigma_{maj}$)')
+    fig.colorbar(im1, ax=axes[1], label='$\Sigma_{maj}$')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "original_grid_sigma.png"), dpi=300)
+    plt.close(fig)
+
+def run_experiments(N_particles=5000, num_runs=10, output_dir="simulation_results"):
+    os.makedirs(output_dir, exist_ok=True)
+    
+    shared_grid = create_shared_grid()
+    save_and_plot_initial_grid(shared_grid, output_dir)
+    
+    methods = [
+        ("Surface", "Surface Tracking", surface_tracking),
+        ("Woodcock", "Woodcock Tracking (Delta)", woodcock_tracking),
+        ("Hybrid_Woodcock", "Hybrid Woodcock Tracking", combined_woodcock_tracking),
+        ("Hybrid_Surface", "Hybrid Surface Tracking", combined_surface_tracking),
+    ]
+    
+    log_file_path = os.path.join(output_dir, "simulation_logs.txt")
+    csv_file_path = os.path.join(output_dir, "summary_metrics.csv")
+    
+    with open(log_file_path, "w", encoding="utf-8") as log_file, \
+         open(csv_file_path, "w", newline="", encoding="utf-8") as csv_file:
+        
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(["Run", "Method_ID", "Method_Name", "Mean_Free_Path", "Escaped", "Absorbed", "Virtual_Collisions", "Runtime_s"])
+        
+        def log_and_print(text):
+            print(text)
+            log_file.write(text + "\n")
+
+        for run_idx in range(1, num_runs + 1):
+            log_and_print(f"\n================ RUN {run_idx}/{num_runs} ({N_particles} particles/method) ================")
+            
+            fluxes_for_plot = {}
+            arrays_to_save = {}
+            
+            for short_name, display_name, track_func in methods:
+                shared_grid.flux_tally.fill(0.0)
+                shared_grid.real_collisions.fill(0)
+                shared_grid.macro_flux_tally.fill(0.0)
+                
+                t0 = time.time()
+                global_real_paths = []
+                escaped_count = 0
+                absorbed_count = 0
+                virtual_count = 0
+                
+                for _ in range(N_particles):
+                    start_pos = np.random.uniform(24.5, 26.5, size=3)
+                    p = Particle(position=start_pos, direction=isotropic_dir())
+                    track_func(p, shared_grid, global_real_paths)
+                    
+                    if p.state == 'escaped':
+                        escaped_count += 1
+                    elif p.state == 'absorbed':
+                        absorbed_count += 1
+                    virtual_count += p.virtual_collisions
+                    
+                t1 = time.time()
+                runtime = t1 - t0
+                
+                mean_path = np.mean(global_real_paths) if global_real_paths else 0.0
+                scalar_flux = (shared_grid.flux_tally / (N_particles * shared_grid.voxel_volume)).copy()
+                
+                fluxes_for_plot[display_name] = scalar_flux
+                arrays_to_save[f"{short_name}_flux"] = scalar_flux
+                arrays_to_save[f"{short_name}_real_collisions"] = shared_grid.real_collisions.copy()
+                arrays_to_save[f"{short_name}_real_paths"] = np.array(global_real_paths)
+                
+                if short_name == "Hybrid_Surface":
+                    macro_vol = np.prod(shared_grid.voxel_size * shared_grid.macro_block_size)
+                    macro_flux = (shared_grid.macro_flux_tally / (N_particles * macro_vol)).copy()
+                    fluxes_for_plot["Macro Hybrid Surface"] = macro_flux
+                    arrays_to_save["Macro_Hybrid_Surface_flux"] = macro_flux
+                
+                log_and_print(f"--- {display_name} (Run {run_idx}) ---")
+                log_and_print(f"Measured mean free path: {mean_path:.3f}")
+                log_and_print(f"Status: {escaped_count} escaped | {absorbed_count} absorbed")
+                log_and_print(f"Number of virtual collisions: {virtual_count}")
+                log_and_print(f"Runtime: {runtime:.2f} seconds")
+                log_and_print("-" * 50)
+                
+                csv_writer.writerow([run_idx, short_name, display_name, mean_path, escaped_count, absorbed_count, virtual_count, runtime])
+            
+            npz_filename = os.path.join(output_dir, f"results_run_{run_idx:02d}.npz")
+            np.savez_compressed(npz_filename, **arrays_to_save)
+            
+            fig, axes = plt.subplots(1, 5, figsize=(22, 5))
+            fig.suptitle(f'Flux Map Comparison - Run {run_idx} (Logarithmic Scale)', fontsize=16)
+            
+            for ax, (name, flux) in zip(axes, fluxes_for_plot.items()):
+                slice_2d = flux[:, :, flux.shape[2] // 2]
+                
+                max_flux = np.max(slice_2d)
+                if max_flux <= 1e-3:
+                    max_flux = 1e-2
+                    
+                im = ax.imshow(slice_2d, origin='lower', cmap='viridis', norm=LogNorm(vmin=1e-3, vmax=max_flux))
+                ax.set_title(name, fontsize=10)
+                ax.set_xlabel('X')
+                ax.set_ylabel('Y')
+                fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label='Flux')
+                
+            plt.tight_layout()
+            plot_filename = os.path.join(output_dir, f"flux_comparison_run_{run_idx:02d}.png")
+            plt.savefig(plot_filename, dpi=300)
+            plt.close(fig)
 
 if __name__ == "__main__":
-    compare_methods(N_particles=5000)
+    run_experiments(N_particles=5000, num_runs=10)
