@@ -344,7 +344,7 @@ def compare_methods(N_particles=2000):
 
 
 def create_shared_grid():
-    shared_grid = Grid(num_voxels=[50, 50, 50], voxel_size=[1.0, 1.0, 1.0], macro_block_size=1)
+    shared_grid = Grid(num_voxels=[50, 50, 50], voxel_size=[1.0, 1.0, 1.0], macro_block_size=5)
     
     num_spikes = 0
     high_sigma_t = 5.0
@@ -362,8 +362,97 @@ def create_shared_grid():
 
     shared_grid.sigma_maj_max = np.max(shared_grid.sigma_maj)
     return shared_grid
+    
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+import os
+
+def apply_rod(grid, m_x, m_y, high_sigma_t=5.0, rod_size=3):
+    """
+    Places a 'rod' with a 3x3 cross-section extending along the entire Z-axis.
+    No Z coordinate is needed as it spans the entire model.
+    """
+    bs = grid.macro_block_size
+    base_x, base_y = m_x * bs, m_y * bs
+    
+    offset = (bs - rod_size) // 2 
+    x0, x1 = base_x + offset, base_x + offset + rod_size
+    y0, y1 = base_y + offset, base_y + offset + rod_size
+    
+    # The ':' means the rod spans the entire Z-axis of the model
+    grid.sigma_t[x0:x1, y0:y1, :] = high_sigma_t
+    grid.sigma_a[x0:x1, y0:y1, :] = high_sigma_t * 0.9 
+
+def recalculate_macro_grid(grid):
+    """ Helper function: Recalculate macro maximums after placing the rods. """
+    bs = grid.macro_block_size
+    for i in range(grid.macro_num_blocks[0]):
+        for j in range(grid.macro_num_blocks[1]):
+            for k in range(grid.macro_num_blocks[2]):
+                block = grid.sigma_t[i*bs:(i+1)*bs, j*bs:(j+1)*bs, k*bs:(k+1)*bs]
+                grid.sigma_maj[i, j, k] = np.max(block)
+    grid.sigma_maj_max = np.max(grid.sigma_maj)
+
+
+def create_grid_edge_rods():
+    """ CASE 1: 10 rods placed at the edges of the model. """
+    grid = Grid(num_voxels=[50, 50, 50], voxel_size=[1.0, 1.0, 1.0], macro_block_size=5)
+    
+    edge_macros_xy = [
+        (0, 0), (9, 9), (0, 9), (9, 0),  # Corners
+        (5, 0), (0, 5), (5, 9), (9, 5),  # Middle of the edges
+        (2, 0), (7, 0)                   # Extra points
+    ]
+    
+    for m_x, m_y in edge_macros_xy:
+        apply_rod(grid, m_x, m_y)
+        
+    recalculate_macro_grid(grid)
+    return grid
+
+
+def create_grid_inner_rods():
+    """ CASE 2: 6-7 rods placed near the center of the model (within a 15-voxel radius). """
+    grid = Grid(num_voxels=[50, 50, 50], voxel_size=[1.0, 1.0, 1.0], macro_block_size=5)
+    
+    center = 4.5
+    radius_in_macros = 3.0 
+    
+    inner_candidates = []
+    for i in range(10):
+        for j in range(10):
+            distance = np.sqrt((i - center)**2 + (j - center)**2)
+            if distance <= radius_in_macros:
+                inner_candidates.append((i, j))
+    
+    np.random.seed(42)
+    np.random.shuffle(inner_candidates)
+    
+    for m_x, m_y in inner_candidates[:7]:
+        apply_rod(grid, m_x, m_y)
+        
+    recalculate_macro_grid(grid)
+    return grid
+
+
+def create_grid_systematic_rods():
+    """ CASE 3: Checkerboard arrangement (only in the X-Y plane). """
+    grid = Grid(num_voxels=[50, 50, 50], voxel_size=[1.0, 1.0, 1.0], macro_block_size=5)
+    
+    np.random.seed(42)
+    for i in range(10):
+        for j in range(10):
+            if (i + j) % 2 == 0:
+                if np.random.rand() < 0.66:
+                    apply_rod(grid, i, j)
+                        
+    recalculate_macro_grid(grid)
+    return grid
+
 
 def save_and_plot_initial_grid(grid, output_dir):
+    """ Plotting with LogNorm so the random background noise is also visible. """
     np.savez_compressed(
         os.path.join(output_dir, "original_grid.npz"),
         sigma_t=grid.sigma_t,
@@ -374,27 +463,37 @@ def save_and_plot_initial_grid(grid, output_dir):
         macro_block_size=np.array(grid.macro_block_size)
     )
     
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    fig.suptitle('Initial Cross-Section Distribution (Middle Z-slice)', fontsize=14)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig.suptitle('Initial Cross-Section Distribution', fontsize=15, fontweight='bold')
     
+    # Any slice is fine because the rods are constant in the Z-direction
     mid_z_micro = grid.sigma_t.shape[2] // 2
-    im0 = axes[0].imshow(grid.sigma_t[:, :, mid_z_micro], origin='lower', cmap='inferno')
-    axes[0].set_title('Micro Grid ($\Sigma_t$)')
-    fig.colorbar(im0, ax=axes[0], label='$\Sigma_t$')
-    
     mid_z_macro = grid.sigma_maj.shape[2] // 2
-    im1 = axes[1].imshow(grid.sigma_maj[:, :, mid_z_macro], origin='lower', cmap='inferno')
-    axes[1].set_title('Macro Grid ($\Sigma_{maj}$)')
-    fig.colorbar(im1, ax=axes[1], label='$\Sigma_{maj}$')
+    
+    # Using LogNorm for the color scale
+    norm_micro = LogNorm(vmin=np.min(grid.sigma_t), vmax=np.max(grid.sigma_t))
+    norm_macro = LogNorm(vmin=np.min(grid.sigma_maj), vmax=np.max(grid.sigma_maj))
+    
+    im0 = axes[0].imshow(grid.sigma_t[:, :, mid_z_micro], origin='lower', cmap='inferno', norm=norm_micro)
+    axes[0].set_title(r'Micro Grid ($\Sigma_t$)', fontsize=13)
+    axes[0].set_xlabel('X [voxel]')
+    axes[0].set_ylabel('Y [voxel]')
+    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    
+    im1 = axes[1].imshow(grid.sigma_maj[:, :, mid_z_macro], origin='lower', cmap='inferno', norm=norm_macro)
+    axes[1].set_title(r'Macro Grid ($\Sigma_{maj}$)', fontsize=13)
+    axes[1].set_xlabel('X [macroblock]')
+    axes[1].set_ylabel('Y [macroblock]')
+    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
     
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "original_grid_sigma.png"), dpi=300)
+    plt.savefig(os.path.join(output_dir, "original_grid_sigma.png"), dpi=300, bbox_inches='tight')
     plt.close(fig)
 
 def run_experiments(N_particles=5000, num_runs=10, output_dir="simulation_results"):
     os.makedirs(output_dir, exist_ok=True)
     
-    shared_grid = create_shared_grid()
+    shared_grid = create_grid_systematic_rods()
     save_and_plot_initial_grid(shared_grid, output_dir)
     
     methods = [
@@ -435,7 +534,7 @@ def run_experiments(N_particles=5000, num_runs=10, output_dir="simulation_result
                 virtual_count = 0
                 
                 for _ in range(N_particles):
-                    start_pos = np.random.uniform(24.5, 26.5, size=3)
+                    start_pos = np.random.uniform(20.5, 30.5, size=3)
                     p = Particle(position=start_pos, direction=isotropic_dir())
                     track_func(p, shared_grid, global_real_paths)
                     
@@ -496,4 +595,4 @@ def run_experiments(N_particles=5000, num_runs=10, output_dir="simulation_result
             plt.close(fig)
 
 if __name__ == "__main__":
-    run_experiments(N_particles=5000, num_runs=10)
+    run_experiments(N_particles=500000, num_runs=1)

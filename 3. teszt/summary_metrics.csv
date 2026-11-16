@@ -1,0 +1,5 @@
+Run,Method_ID,Method_Name,Mean_Free_Path,Escaped,Absorbed,Virtual_Collisions,Runtime_s
+1,Surface,Surface Tracking,7.682407078106077,32186,467812,0,1309.630004644394
+1,Woodcock,Woodcock Tracking (Delta),7.683873503482572,31947,468053,76417,54.647608041763306
+1,Hybrid_Woodcock,Hybrid Woodcock Tracking,7.68322748710484,31984,468016,76821,273.4634790420532
+1,Hybrid_Surface,Hybrid Surface Tracking,7.677562557465945,31678,468322,75757,270.15939378738403

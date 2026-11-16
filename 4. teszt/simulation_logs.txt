@@ -1,0 +1,26 @@
+
+================ RUN 1/1 (500000 particles/method) ================
+--- Surface Tracking (Run 1) ---
+Measured mean free path: 6.507
+Status: 20570 escaped | 479429 absorbed
+Number of virtual collisions: 0
+Runtime: 1379.48 seconds
+--------------------------------------------------
+--- Woodcock Tracking (Delta) (Run 1) ---
+Measured mean free path: 6.495
+Status: 20563 escaped | 479437 absorbed
+Number of virtual collisions: 30007788
+Runtime: 1484.33 seconds
+--------------------------------------------------
+--- Hybrid Woodcock Tracking (Run 1) ---
+Measured mean free path: 6.493
+Status: 20724 escaped | 479276 absorbed
+Number of virtual collisions: 367086
+Runtime: 548.69 seconds
+--------------------------------------------------
+--- Hybrid Surface Tracking (Run 1) ---
+Measured mean free path: 6.492
+Status: 20917 escaped | 479083 absorbed
+Number of virtual collisions: 367839
+Runtime: 549.09 seconds
+--------------------------------------------------
