@@ -444,7 +444,7 @@ def create_grid_systematic_rods():
     for i in range(10):
         for j in range(10):
             if (i + j) % 2 == 0:
-                if np.random.rand() < 0.66:
+                if np.random.rand() < 0.4:
                     apply_rod(grid, i, j)
                         
     recalculate_macro_grid(grid)
@@ -515,7 +515,7 @@ def save_and_plot_initial_grid(grid, output_dir):
 def run_experiments(N_particles=5000, num_runs=10, output_dir="simulation_results"):
     os.makedirs(output_dir, exist_ok=True)
     
-    shared_grid = create_grid_random_rods(5)
+    shared_grid = create_grid_systematic_rods()
     save_and_plot_initial_grid(shared_grid, output_dir)
     
     methods = [
@@ -617,4 +617,4 @@ def run_experiments(N_particles=5000, num_runs=10, output_dir="simulation_result
             plt.close(fig)
 
 if __name__ == "__main__":
-    run_experiments(N_particles=500000, num_runs=1)
+    run_experiments(N_particles=1000000, num_runs=1)
