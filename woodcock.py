@@ -450,6 +450,28 @@ def create_grid_systematic_rods():
     recalculate_macro_grid(grid)
     return grid
 
+def create_grid_random_rods(num_rods=5):
+    """ 
+    CASE 4: Randomly placed rods across the X-Y plane. 
+    You can easily change the number of rods by passing a different num_rods value.
+    """
+    grid = Grid(num_voxels=[20,20,20], voxel_size=[2.5, 2.5, 2.5], macro_block_size=2)
+    
+    # Optional: Set a seed if you want the "random" rods to be in the exact 
+    # same place every time you run the code for testing. 
+    # np.random.seed(42) 
+    
+    for _ in range(num_rods):
+        # Choose a random macroblock in the X and Y directions
+        m_x = np.random.randint(0, grid.macro_num_blocks[0])
+        m_y = np.random.randint(0, grid.macro_num_blocks[1])
+        
+        # Place the rod in the chosen macroblock
+        apply_rod(grid, m_x, m_y, high_sigma_t=5.0, rod_size=2)
+        
+    # Recalculate the macro grid maximums after placing all rods
+    recalculate_macro_grid(grid)
+    return grid
 
 def save_and_plot_initial_grid(grid, output_dir):
     """ Plotting with LogNorm so the random background noise is also visible. """
@@ -493,7 +515,7 @@ def save_and_plot_initial_grid(grid, output_dir):
 def run_experiments(N_particles=5000, num_runs=10, output_dir="simulation_results"):
     os.makedirs(output_dir, exist_ok=True)
     
-    shared_grid = create_grid_systematic_rods()
+    shared_grid = create_grid_random_rods(5)
     save_and_plot_initial_grid(shared_grid, output_dir)
     
     methods = [
