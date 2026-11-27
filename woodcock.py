@@ -108,7 +108,9 @@ def woodcock_tracking(particle, grid, global_real_paths):
             break
 
         collision_voxel = grid.which_micro_voxel(particle.position)
-        grid.flux_tally[collision_voxel] += random_distance
+        # PE: this is not a correct tally!!!
+        # grid.flux_tally[collision_voxel] += random_distance
+        grid.flux_tally[collision_voxel] += 1/grid.sigma_maj_max
         
         sigma_t_local = grid.sigma_t[collision_voxel]
         probability_of_real = sigma_t_local / grid.sigma_maj_max
@@ -129,18 +131,22 @@ def woodcock_tracking(particle, grid, global_real_paths):
                 particle.direction = isotropic_dir()
         else:
             particle.virtual_collisions += 1
+        # PE: here some significant extra calculations would be needed for a track length tally
 
 def surface_tracking(particle, grid, global_real_paths):
     optical_path = -np.log(np.random.rand())
     while optical_path > 0 and particle.state == 'active':
         current_voxel = grid.which_micro_voxel(particle.position)
+        current_macro_voxel = grid.which_macro_voxel(particle.position)
         d_bound = grid.get_distance_to_boundary(particle.position, particle.direction, grid.voxel_size)
         
         if optical_path / grid.sigma_t[current_voxel] < d_bound:
             step_dist = optical_path / grid.sigma_t[current_voxel]
             particle.position += particle.direction * step_dist
             particle.path_since_last_real_collision += step_dist
-            grid.flux_tally[current_voxel] += step_dist
+            # PE: use collision tally for a fair comparison
+            # grid.flux_tally[current_voxel] += step_dist
+            grid.flux_tally[current_voxel] += 1/grid.sigma_t[current_voxel]
             grid.real_collisions[current_voxel] += 1
             global_real_paths.append(particle.path_since_last_real_collision)
             particle.path_since_last_real_collision = 0.0
@@ -154,12 +160,15 @@ def surface_tracking(particle, grid, global_real_paths):
             step_dist = d_bound + 1e-6
             particle.position += particle.direction * step_dist
             particle.path_since_last_real_collision += step_dist
-            grid.flux_tally[current_voxel] += step_dist
+            # PE: use collision tally for a fair comparison
+            #grid.flux_tally[current_voxel] += step_dist
             
             optical_path -= step_dist * grid.sigma_t[current_voxel]
             if np.any(particle.position < 0) or np.any(particle.position >= grid.total_size):
                 particle.state = 'escaped'
                 break
+        # PE: the step dist can be added to the macro flux tally, if we want to
+        grid.macro_flux_tally[current_macro_voxel]+=step_dist
 
 def combined_woodcock_tracking(particle, grid, global_real_paths):
     macro_size = grid.voxel_size * grid.macro_block_size
@@ -177,7 +186,10 @@ def combined_woodcock_tracking(particle, grid, global_real_paths):
             
             current_micro = grid.which_micro_voxel(particle.position)
             
-            grid.flux_tally[current_micro] += d_woodcock
+            # PE: the distance is checked for the macro voxel, but added to micro?
+            #grid.flux_tally[current_micro] += d_woodcock
+            # use just a collision tally, that works for the micro 
+            grid.flux_tally[current_micro] += 1/grid.sigma_maj[current_macro]
             
             sigma_t_local = grid.sigma_t[current_micro]
             probability_of_real = sigma_t_local / sigma_maj_local
@@ -195,9 +207,11 @@ def combined_woodcock_tracking(particle, grid, global_real_paths):
             else:
                 particle.virtual_collisions += 1
         else:
+            # PE: maybe shifting slightly results in the "extra" flux at boundaries?
             step_dist = d_macro_bound + 1e-6
-            current_micro = grid.which_micro_voxel(particle.position)
-            grid.flux_tally[current_micro] += step_dist
+            # PE: the distance is checked for the macro voxel, but added to micro?
+            #grid.flux_tally[current_micro] += step_dist
+            #grid.macro_flux_tally[current_macro] += 1/grid.sigma_maj[current_macro]
             particle.position += particle.direction * step_dist
             particle.path_since_last_real_collision += step_dist
             
@@ -219,11 +233,16 @@ def combined_surface_tracking(particle, grid, global_real_paths):
             
             current_micro = grid.which_micro_voxel(particle.position)
             probability_of_real = grid.sigma_t[current_micro] / grid.sigma_maj[current_macro]
+
+            # PE: all of this was duplicated inside both branches of if-else
+            grid.macro_flux_tally[current_macro] += step_dist
+            # PE: the distance is checked for the macro voxel, but added to micro?
+            #grid.flux_tally[current_micro] += step_dist
+            # use just a collision tally, that works for the micro 
+            grid.flux_tally[current_micro] += 1/grid.sigma_maj[current_macro]
+            particle.path_since_last_real_collision += step_dist
             
             if np.random.rand() < probability_of_real:
-                particle.path_since_last_real_collision += step_dist
-                grid.macro_flux_tally[current_macro] += step_dist
-                grid.flux_tally[current_micro] += step_dist
                 grid.real_collisions[current_micro] += 1
                 global_real_paths.append(particle.path_since_last_real_collision)
                 particle.path_since_last_real_collision = 0.0
@@ -235,14 +254,17 @@ def combined_surface_tracking(particle, grid, global_real_paths):
                     optical_path = -np.log(np.random.rand())
             else:
                 particle.virtual_collisions += 1
-                particle.path_since_last_real_collision += step_dist
-                grid.flux_tally[current_micro] += step_dist
                 optical_path = -np.log(np.random.rand())
         else:
+            # PE: maybe shifting slightly results in the "extra" flux at boundaries?
             step_dist = d_bound + 1e-6
-            
+            # PE: the distance is checked for the macro voxel, but added to micro?
             current_micro = grid.which_micro_voxel(particle.position)
-            grid.flux_tally[current_micro] += step_dist
+            # PE: either use collision tally for the micro flux
+            #grid.flux_tally[current_micro] += step_dist
+            # PE: or estimate on the macro voxels with the track length
+            current_macro = grid.which_macro_voxel(particle.position)
+            grid.macro_flux_tally[current_macro] += step_dist            
             
             particle.position += particle.direction * step_dist
             particle.path_since_last_real_collision += step_dist
@@ -515,7 +537,7 @@ def save_and_plot_initial_grid(grid, output_dir):
 def run_experiments(N_particles=5000, num_runs=10, output_dir="simulation_results"):
     os.makedirs(output_dir, exist_ok=True)
     
-    shared_grid = create_grid_systematic_rods()
+    shared_grid = create_grid_random_rods(6)
     save_and_plot_initial_grid(shared_grid, output_dir)
     
     methods = [
@@ -617,4 +639,4 @@ def run_experiments(N_particles=5000, num_runs=10, output_dir="simulation_result
             plt.close(fig)
 
 if __name__ == "__main__":
-    run_experiments(N_particles=1000000, num_runs=1)
+    run_experiments(N_particles=500000, num_runs=3)

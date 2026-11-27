@@ -1,0 +1,35 @@
+=== EVALUATION ACROSS 3 RUNS: [1, 2, 3] ===
+Directory: simulation_results
+
+--- Surface Tracking ---
+  Flux (domain avg mean +- std): 1.033312e-04 +- 3.952338e-06
+  Flux (peak voxel mean / std): 6.130574e-03 / 1.058731e-04
+  Mean relative uncertainty (R): 0.2664
+  Runtime per run (mean +- std): 913.67 s +- 111.13 s (total: 2741.00 s)
+  Figure of Merit (1 / (R^2*T)): 1.5423e-02
+  Measured MFP (mean):           4.7463
+--------------------------------------------------
+--- Woodcock Tracking (Delta) ---
+  Flux (domain avg mean +- std): 1.033470e-04 +- 2.379611e-06
+  Flux (peak voxel mean / std): 6.079932e-03 / 6.621109e-05
+  Mean relative uncertainty (R): 0.1777
+  Runtime per run (mean +- std): 1721.26 s +- 163.24 s (total: 5163.77 s)
+  Figure of Merit (1 / (R^2*T)): 1.8403e-02
+  Measured MFP (mean):           4.7494
+--------------------------------------------------
+--- Hybrid Woodcock Tracking ---
+  Flux (domain avg mean +- std): 1.032927e-04 +- 3.479286e-06
+  Flux (peak voxel mean / std): 6.190806e-03 / 1.127450e-04
+  Mean relative uncertainty (R): 0.2391
+  Runtime per run (mean +- std): 680.04 s +- 35.93 s (total: 2040.13 s)
+  Figure of Merit (1 / (R^2*T)): 2.5719e-02
+  Measured MFP (mean):           4.7425
+--------------------------------------------------
+--- Hybrid Surface Tracking ---
+  Flux (domain avg mean +- std): 1.033206e-04 +- 3.402217e-06
+  Flux (peak voxel mean / std): 6.083794e-03 / 8.846377e-05
+  Mean relative uncertainty (R): 0.2404
+  Runtime per run (mean +- std): 784.16 s +- 32.39 s (total: 2352.49 s)
+  Figure of Merit (1 / (R^2*T)): 2.2067e-02
+  Measured MFP (mean):           4.7457
+--------------------------------------------------
